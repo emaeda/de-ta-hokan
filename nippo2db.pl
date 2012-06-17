@@ -18,10 +18,80 @@ my $dbh;
 my %busho = ('客室' => 0, 'エトワール'=>1, '楠乃木'=>2, '桃花苑'=>3, 'ＮＹ－ＮＹ'=>4, 'ティファニー'=>5, '婚礼'=>6,
              '宴会'=>7, 'ＡＶスタジオ'=>8, 'コモンズ'=>9, 'ｲﾝﾌｫﾒｰｼｮﾝ'=>10, '慧洲園'=>11, 'その他'=>12 );
 
-my $excel = Spreadsheet::ParseExcel->new;
-my $fmt = Spreadsheet::ParseExcel::FmtJapan->new(Code=>'sjis');
-my $book = $excel->parse("nipposample1.xls", $fmt);
-my $sheet = $book->{"Worksheet"}[0];
+# for Excel Handling
+my $excel;
+my $fmt;
+my $book;
+my $sheet;
+
+
+# ****** MAIN ******
+
+# オプションのチェック
+my $ar = shift @ARGV;
+
+if (!defined($ar) || $ar eq '-h') {
+    my $usage = "\nUsage: perl nippo2db.pl [option]\n".
+                "  -h           使用法表示\n".
+                "  -f filename  指定されたファイルを読み込み、データベースに保存\n".
+                "  -t           カレントフォルダ内のExcelファイルを全て読み込み、\n".
+                "               データベースに保存\n";
+
+    my $sjisstr = encode("SJIS", $usage);
+    print $sjisstr."\n";
+    exit;
+}
+elsif ($ar eq "-f") { # 指定されたファイルを読み込み、保存
+    my $fn = shift @ARGV;
+    $dbh = DBI->connect("dbi:Pg:dbname=$DB_NAME;host=$DB_HOST", "$DB_USER", "$DB_PASS")
+        or die "$!\nError: failed to connect to DB.\n";
+    importFromExcel($fn);
+    $dbh->disconnect;
+
+    exit;
+}
+elsif ($ar eq "-t") { # 現在のカレントフォルダで該当するファイルを全て読み込み、保存
+    my $crdir = './';
+    opendir DH, $crdir or die "$crdir:$!";
+    my @files = readdir DH;
+    foreach my $file (@files) {
+        if ($file =~ /^\.{1,2}$/) {
+            $file = undef();  # 「.」や「..」を取り除く
+        } elsif ($file !~ /(\.xls)$/) {
+            $file = undef();  # 拡張子が「.xls」以外を取り除く
+        }
+    }
+    my @xlsfiles = sort {$a cmp $b} @files;
+    print @xlsfiles;
+    exit;
+} else {exit;}
+
+# ****** MAIN END ******
+
+
+# Excelファイルから日報データを読み込み、データベースに保存
+sub importFromExcel {
+    
+    my $exfile = shift;
+
+    $excel = Spreadsheet::ParseExcel->new;
+    $fmt = Spreadsheet::ParseExcel::FmtJapan->new(Code=>'sjis');
+    $book = $excel->parse($exfile, $fmt);
+    $sheet = $book->{"Worksheet"}[0];
+
+    kyakushitsu();
+    ryoin(1);   # エトワール
+    ryoin(3);   # 桃花苑
+    ryoin(5);   # ティファニー
+    ryoin(6);   # 婚礼
+    ryoin(7);   # 宴会
+    ryoin(8);   # AVスタジオ
+    sonota(9);  # コモンズ
+    sonota(10); # インフォメーション
+    sonota(11); # 慧洲園
+    sonota(12); # その他
+}
+
 
 # 部署名から部署コードを返す
 sub getBushoCode {
@@ -251,26 +321,20 @@ sub sonota {
     }
 
     my $sql = "INSERT INTO tr_sonota(id, uri_date, busho_code, riyosu, uriage_sonota, uriage_waribiki, ".
-        "cons_tax, ".
-        "shukugake, genkin, furikae, credit, coupon, sotogake) VALUES ".
-        "(default, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        "cons_tax, bath_tax, shukugake, genkin, furikae, credit, coupon, sotogake) VALUES ".
+        "(default, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     my $sth = $dbh->prepare($sql) or die $dbh->errstr;
     $sth->execute(@parm) or die $sth->errstr;
 
 }
 
+# オプションチェック
+sub optionCheck {
+    my $op = shift;
+    if ($op eq "-h") {
+        print "";
+    }
+    return 0;
+}
 
-# ****** main ******
-$dbh = DBI->connect("dbi:Pg:dbname=$DB_NAME;host=$DB_HOST", "$DB_USER", "$DB_PASS")
-    or die "$!\nError: failed to connect to DB.\n";
 
-kyakushitsu();
-ryoin(1);  # エトワール
-ryoin(3);  # 桃花苑
-ryoin(5);  # ティファニー
-ryoin(6);  # 婚礼
-ryoin(7);  # 宴会
-ryoin(8);  # AVスタジオ
-sonota();
-
-$dbh->disconnect;
